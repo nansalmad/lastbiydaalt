@@ -4,8 +4,9 @@ import 'dart:convert';
 
 class BookDetailPage extends StatefulWidget {
   final int bookId;
+  final int userId; // Added userId here
 
-  const BookDetailPage({super.key, required this.bookId});
+  const BookDetailPage({super.key, required this.bookId, required this.userId});
 
   @override
   State<BookDetailPage> createState() => _BookDetailPageState();
@@ -42,6 +43,35 @@ class _BookDetailPageState extends State<BookDetailPage> {
         loading = false;
         error = true;
       });
+    }
+  }
+
+  Future<void> addToCart(int bookId, {int quantity = 1}) async {
+    final url = Uri.parse('http://localhost:3000/api/cart/add');
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'userId': widget.userId,
+          'bookId': bookId,
+          'quantity': quantity,
+        }),
+      );
+      if (response.statusCode == 200) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Book added to cart')));
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to add book to cart')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Error adding to cart')));
+      print('Error adding to cart: $e');
     }
   }
 
@@ -95,6 +125,14 @@ class _BookDetailPageState extends State<BookDetailPage> {
                     Text(
                       book?['description'] ?? 'No description available',
                       style: const TextStyle(fontSize: 16),
+                    ),
+                    const SizedBox(height: 24),
+                    ElevatedButton.icon(
+                      onPressed: () {
+                        addToCart(widget.bookId);
+                      },
+                      icon: const Icon(Icons.add_shopping_cart),
+                      label: const Text('Add to Cart'),
                     ),
                   ],
                 ),

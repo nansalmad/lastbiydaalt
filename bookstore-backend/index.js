@@ -164,7 +164,90 @@ app.post('/api/cart/add', async (req, res) => {
       res.status(500).send({ error: 'Error removing book from cart' });
     }
   });
-
+// Place Order (from cart)
+app.post('/api/orders/place', async (req, res) => {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).send({ error: 'Missing userId' });
+  
+    try {
+      // Get cart items for the user
+      const cartResult = await pool.query(
+        `SELECT ci.quantity, b.id, b.price FROM cart_items ci
+         JOIN books b ON ci.book_id = b.id
+         WHERE ci.user_id = $1`,
+        [userId]
+      );
+      const cartItems = cartResult.rows;
+      if (cartItems.length === 0) {
+        return res.status(400).send({ error: 'Cart is empty' });
+      }
+  
+      // Calculate total price
+      const total = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  
+      // Start transaction
+      await pool.query('BEGIN');
+  
+      // Insert new order
+      const orderResult = await pool.query(
+        `INSERT INTO orders (user_id, total) VALUES ($1, $2) RETURNING id`,
+        [userId, total]
+      );
+      const orderId = orderResult.rows[0].id;
+  
+      // Insert order items
+      for (const item of cartItems) {
+        await pool.query(
+          `INSERT INTO order_items (order_id, book_id, quantity, price)
+           VALUES ($1, $2, $3, $4)`,
+          [orderId, item.id, item.quantity, item.price]
+        );
+      }
+  
+      // Clear user's cart
+      await pool.query('DELETE FROM cart_items WHERE user_id = $1', [userId]);
+  
+      // Commit transaction
+      await pool.query('COMMIT');
+  
+      res.status(201).send({ message: 'Order placed', orderId });
+    } catch (err) {
+      await pool.query('ROLLBACK');
+      console.error(err);
+      res.status(500).send({ error: 'Error placing order' });
+    }
+  });
+  
+  // Get User Orders with Items
+  app.get('/api/orders/:userId', async (req, res) => {
+    const userId = req.params.userId;
+    try {
+      // Get all orders for user
+      const ordersResult = await pool.query(
+        'SELECT id, created_at FROM orders WHERE user_id = $1 ORDER BY created_at DESC',
+        [userId]
+      );
+      const orders = ordersResult.rows;
+  
+      // For each order, get its items
+      for (const order of orders) {
+        const itemsResult = await pool.query(
+          `SELECT oi.quantity, b.title, b.author, b.price, b.photo_base64
+           FROM order_items oi
+           JOIN books b ON oi.book_id = b.id
+           WHERE oi.order_id = $1`,
+          [order.id]
+        );
+        order.items = itemsResult.rows;
+      }
+  
+      res.send(orders);
+    } catch (err) {
+      console.error(err);
+      res.status(500).send({ error: 'Error fetching orders' });
+    }
+  });
+  
 // Start server
 app.listen(port, () => {
   console.log(`Server running at http://localhost:${port}`);
